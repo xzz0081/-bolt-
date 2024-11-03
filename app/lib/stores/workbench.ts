@@ -271,6 +271,14 @@ export class WorkbenchStore {
     const artifacts = this.artifacts.get();
     return artifacts[id];
   }
+
+  async addFile(path: string, content: Uint8Array) {
+    // Normalize path and remove leading slash
+    const normalizedPath = path.replace(/^\/+/, '');
+    
+    // Create file in webcontainer
+    await this.#filesStore.writeFile(normalizedPath, content);
+  }
 }
 
 export const workbenchStore = new WorkbenchStore();

@@ -4,6 +4,7 @@ import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { toast } from 'react-toastify';
+import { importProject } from '~/utils/import';
 
 interface HeaderActionButtonsProps {}
 
@@ -55,23 +56,8 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
         
         setImporting(true);
         try {
-          // Validate file
-          if (!file.name.endsWith('.zip') && !file.name.endsWith('.tar.gz')) {
-            throw new Error('Invalid file format. Only .zip and .tar.gz files are supported.');
-          }
-
-          // Read file content
-          const content = await file.arrayBuffer();
-          
-          // TODO: Process the imported project
-          // For now just show success message
+          await importProject(file);
           toast.success('Project imported successfully!');
-          
-          // Show workbench after successful import
-          workbenchStore.showWorkbench.set(true);
-          if (!showChat) {
-            chatStore.setKey('showChat', true);
-          }
         } catch (error) {
           toast.error(error instanceof Error ? error.message : 'Failed to import project');
           console.error('Project import failed:', error);

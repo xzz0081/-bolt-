@@ -195,6 +195,19 @@ export class FilesStore {
       return '';
     }
   }
+
+  async writeFile(path: string, content: Uint8Array) {
+    const webcontainer = await this.#webcontainer;
+    
+    // Create parent directories if they don't exist
+    const dir = nodePath.dirname(path);
+    if (dir !== '.') {
+      await webcontainer.fs.mkdir(dir, { recursive: true });
+    }
+
+    // Write file
+    await webcontainer.fs.writeFile(path, content);
+  }
 }
 
 function isBinaryFile(buffer: Uint8Array | undefined) {
