@@ -2,7 +2,6 @@ import { WebContainer } from '@webcontainer/api';
 import { 
   webcontainerInstanceManager, 
   webcontainerContext,
-  terminalLogs,
   type WebContainerStatus
 } from '../webcontainer';
 import { atom } from 'nanostores';
@@ -25,9 +24,15 @@ export class WebContainerManager {
   private constructor() {
     if (import.meta.hot) {
       import.meta.hot.dispose(() => {
-        this.reset();
+        this.cleanup();
       });
     }
+  }
+
+  private cleanup() {
+    this.mountedFiles = false;
+    this.shellProcess = null;
+    this.activeProcess = {};
   }
 
   static getInstance(): WebContainerManager {
@@ -41,19 +46,20 @@ export class WebContainerManager {
     return webcontainerInstanceManager.getWebContainer();
   }
 
-  // 修改现有的importProject方法
   async importProject(file: File) {
     try {
+      console.log('开始导入项目:', file.name);
       setWebcontainerStatus('importing');
       
-      // 解压和处理文件
       const zip = new JSZip();
+      console.log('解压文件...');
       const content = await file.arrayBuffer();
       const zipContent = await zip.loadAsync(content);
       
       const files: Record<string, any> = {};
+      let fileCount = 0;
       
-      // 处理所有文件
+      console.log('处理文件...');
       for (const [path, zipEntry] of Object.entries(zipContent.files)) {
         if (!zipEntry.dir) {
           const content = await zipEntry.async('uint8array');
@@ -63,89 +69,81 @@ export class WebContainerManager {
               contents: content
             }
           };
+          fileCount++;
         }
       }
       
+      console.log(`处理了 ${fileCount} 个文件`);
+      
+      console.log('获取 WebContainer 实例...');
       const webcontainer = await this.getWebContainer();
+      
+      console.log('挂载文件...');
       await webcontainer.mount(files);
       
       this.mountedFiles = true;
 
-      // 输出到所有终端
       const message = '项目导入成功,开始安装依赖...\n';
+      console.log(message);
       webcontainerContext.terminals.forEach(terminal => {
         terminal.write(message);
       });
       
-      // 自动安装依赖和启动
+      console.log('开始安装依赖...');
       await this.installDependencies();
 
-      return true;
+      console.log('项目导入完成');
+      setWebcontainerStatus('ready');
+      
     } catch (error: any) {
-      // 错误信息输出到终端
-      const errorMsg = `项目导入失败: ${error.message}\n`;
+      console.error('项目导入失败:', error);
+      setWebcontainerStatus('error');
+      
+      const errorMsg = `项目导入失败: ${error?.message || '未知错误'}\n`;
       webcontainerContext.terminals.forEach(terminal => {
         terminal.write(errorMsg);
       });
       
-      setWebcontainerStatus('error');
       throw error;
     }
   }
 
-  // 安装依赖
-  private async installDependencies() {
+  async installDependencies() {
     try {
-      setWebcontainerStatus('installing');
-      
+      console.log('获取 WebContainer 实例...');
       const webcontainer = await this.getWebContainer();
       
-      // 检查是否存在 package.json
-      const packageJson = await webcontainer.fs.readFile('package.json', 'utf-8');
-      const pkgContent = JSON.parse(packageJson);
+      console.log('启动 npm install...');
+      const installProcess = await webcontainer.spawn('npm', ['install']);
       
-      // 检测包管理器锁文件
-      const hasYarnLock = await this.fileExists('yarn.lock');
-      const hasPnpmLock = await this.fileExists('pnpm-lock.yaml');
+      installProcess.output.pipeTo(
+        new WritableStream({
+          write: (data) => {
+            console.log('安装输出:', data);
+            webcontainerContext.terminals.forEach(terminal => {
+              terminal.write(data);
+            });
+          }
+        })
+      );
+
+      console.log('等待安装完成...');
+      const exitCode = await installProcess.exit;
       
-      let command = 'npm';
-      let installCmd = 'install';
-      
-      if (hasYarnLock) {
-        command = 'yarn';
-      } else if (hasPnpmLock) {
-        command = 'pnpm';
+      if (exitCode !== 0) {
+        throw new Error('Dependencies installation failed');
       }
-      
-      // 输出安装信息
-      const installMsg = `使用 ${command} 安装依赖...\n`;
+
+      const successMsg = '依赖安装完成!\n';
+      console.log(successMsg);
       webcontainerContext.terminals.forEach(terminal => {
-        terminal.write(installMsg);
+        terminal.write(successMsg);
       });
-      
-      const exitCode = await this.executeCommand(command, ['install']);
-      
-      if (exitCode === 0) {
-        const startMsg = '依赖安装成功,正在启动应用...\n';
-        webcontainerContext.terminals.forEach(terminal => {
-          terminal.write(startMsg);
-        });
-        
-        await this.startApplication(pkgContent);
-      }
-    } catch (error: any) {
-      const errorMsg = `依赖安装失败: ${error.message}\n`;
-      webcontainerContext.terminals.forEach(terminal => {
-        terminal.write(errorMsg);
-      });
-      
-      setWebcontainerStatus('error');
+    } catch (error) {
+      console.error('安装依赖失败:', error);
       throw error;
     }
   }
-
-  // 其他方法保持不变...
 }
 
-// 导出单例
 export const webcontainerManager = WebContainerManager.getInstance();

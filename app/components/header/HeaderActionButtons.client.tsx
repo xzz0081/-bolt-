@@ -3,8 +3,7 @@ import { type ReactNode, useState } from 'react';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
-import { toast } from 'react-toastify';
-import { importProject } from '~/utils/import';
+import { webcontainerManager } from '~/lib/stores/webcontainer';
 
 interface HeaderActionButtonsProps {}
 
@@ -38,10 +37,10 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
   const { showChat } = useStore(chatStore);
   
   const canHideChat = showWorkbench || !showChat;
-
   const [importing, setImporting] = useState(false);
 
   const handleImportProject = async () => {
+    console.log('点击导入按钮'); // 调试日志
     if (importing) return;
 
     try {
@@ -54,21 +53,29 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
         
+        console.log('选择文件:', file.name); // 调试日志
         setImporting(true);
+        
         try {
-          await importProject(file);
-          toast.success('Project imported successfully!');
+          console.log('开始导入项目'); // 调试日志
+          await webcontainerManager.importProject(file);
+          
+          // 显示工作区
+          workbenchStore.showWorkbench.set(true);
+          
+          // 显示成功消息
+          console.log('项目导入成功'); // 调试日志
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : 'Failed to import project');
-          console.error('Project import failed:', error);
+          console.error('导入失败:', error); // 调试日志
         } finally {
           setImporting(false);
         }
       };
 
+      // 触发文件选择
       input.click();
     } catch (error) {
-      console.error('Failed to import project:', error);
+      console.error('创建文件选择器失败:', error);
       setImporting(false);
     }
   };
@@ -88,8 +95,17 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
           <div className="i-bolt:chat text-sm" />
         </Button>
         <div className="w-[1px] bg-bolt-elements-borderColor" />
-        <Button onClick={handleImportProject} disabled={importing}>
-          <div className={importing ? "i-svg-spinners:180-ring-with-bg" : "i-ph:paper-plane-tilt-fill"} />
+        <Button 
+          onClick={handleImportProject} 
+          disabled={importing}
+        >
+          <div 
+            className={importing ? "i-svg-spinners:180-ring-with-bg" : "i-ph:paper-plane-tilt-fill"} 
+            onClick={(e) => {
+              e.stopPropagation(); // 防止事件冒泡
+              handleImportProject();
+            }}
+          />
         </Button>
         <div className="w-[1px] bg-bolt-elements-borderColor" />
         <Button
