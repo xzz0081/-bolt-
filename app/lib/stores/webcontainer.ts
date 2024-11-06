@@ -73,7 +73,35 @@ export class WebContainerManager {
               .replace(/\.$/, '_')                // 替换结尾的点
               .toLowerCase();                     // 转换为小写
           })
-          .join('_');                            // 使用下划线连接路径段
+          .join('/');                            // 使用斜杠连接路径段
+      };
+      
+      // 构建文件系统树的辅助函数
+      const buildFileSystemTree = (files: Record<string, any>) => {
+        const tree: Record<string, any> = {};
+        
+        for (const [path, content] of Object.entries(files)) {
+          const parts = path.split('/');
+          let current = tree;
+          
+          // 处理路径中的每一段
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            
+            // 如果是最后一个部分，添加文件
+            if (i === parts.length - 1) {
+              current[part] = content;
+            } else {
+              // 如果不是最后一个部分，创建或获取目录
+              if (!current[part]) {
+                current[part] = { directory: {} };
+              }
+              current = current[part].directory;
+            }
+          }
+        }
+        
+        return tree;
       };
       
       console.log('处理文件...');
@@ -93,11 +121,11 @@ export class WebContainerManager {
             const content = await zipEntry.async('uint8array');
             
             // 添加父目录到目录集合
-            const dirPath = normalizedPath.split('_').slice(0, -1).join('_');
+            const dirPath = normalizedPath.split('/').slice(0, -1).join('/');
             if (dirPath) {
               let currentPath = '';
-              for (const part of dirPath.split('_')) {
-                currentPath = currentPath ? `${currentPath}_${part}` : part;
+              for (const part of dirPath.split('/')) {
+                currentPath = currentPath ? `${currentPath}/${part}` : part;
                 directories.add(currentPath);
               }
             }
@@ -143,18 +171,34 @@ export class WebContainerManager {
         }
       }
 
+      // 构建并挂载文件系统树
+      console.log('构建文件系统树...');
+      const fileSystemTree = buildFileSystemTree(files);
+      console.log('文件系统树:', fileSystemTree);
+
       // 挂载文件
       console.log('挂载文件...');
       try {
-        // 打印文件系统树以便调试
-        console.log('文件系统树:', files);
-        await webcontainer.mount(files);
+        await webcontainer.mount(fileSystemTree);
+        
+        // 验证文件是否正确挂载
+        const mountedFiles = await webcontainer.fs.readdir('.', { recursive: true });
+        console.log('已挂载的文件:', mountedFiles);
+        
       } catch (e) {
         console.error('挂载文件失败:', e);
         throw new Error('文件挂载失败: ' + (e as Error).message);
       }
 
       this.mountedFiles = true;
+
+      // 更新工作区文件树
+      try {
+        const fileList = await webcontainer.fs.readdir('.', { recursive: true });
+        workbenchStore.setFiles(fileList);
+      } catch (e) {
+        console.error('更新文件树失败:', e);
+      }
 
       // 检查并处理 package.json
       try {
