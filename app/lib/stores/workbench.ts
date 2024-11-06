@@ -279,6 +279,37 @@ export class WorkbenchStore {
     // Create file in webcontainer
     await this.#filesStore.writeFile(normalizedPath, content);
   }
+
+  async deleteFile(filePath: string) {
+    try {
+      const dirent = this.files.get()[filePath];
+      
+      if (!dirent) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+
+      if (dirent.type === 'file') {
+        await this.#filesStore.deleteFile(filePath);
+      } else {
+        await this.#filesStore.deleteDirectory(filePath);
+      }
+
+      // Clear selection if deleted file was selected
+      if (this.selectedFile.get() === filePath) {
+        this.setSelectedFile(undefined);
+      }
+
+      // Remove from unsaved files if present
+      const unsaved = this.unsavedFiles.get();
+      if (unsaved.has(filePath)) {
+        unsaved.delete(filePath);
+        this.unsavedFiles.set(new Set(unsaved));
+      }
+    } catch (error) {
+      console.error('Failed to delete:', error);
+      throw error;
+    }
+  }
 }
 
 export const workbenchStore = new WorkbenchStore();

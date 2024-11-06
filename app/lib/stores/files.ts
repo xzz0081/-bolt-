@@ -208,6 +208,63 @@ export class FilesStore {
     // Write file
     await webcontainer.fs.writeFile(path, content);
   }
+
+  async deleteFile(filePath: string) {
+    const webcontainer = await this.#webcontainer;
+    
+    try {
+      const relativePath = nodePath.relative(webcontainer.workdir, filePath);
+
+      if (!relativePath) {
+        throw new Error(`EINVAL: invalid file path, delete '${relativePath}'`);
+      }
+
+      // Delete the file from WebContainer filesystem
+      await webcontainer.fs.rm(relativePath);
+      
+      // Remove from files store
+      this.files.setKey(filePath, undefined);
+      
+      // Update file count
+      this.#size--;
+
+      logger.info(`File deleted: ${filePath}`);
+    } catch (error) {
+      logger.error('Failed to delete file\n\n', error);
+      throw error;
+    }
+  }
+
+  async deleteDirectory(dirPath: string) {
+    const webcontainer = await this.#webcontainer;
+    
+    try {
+      const relativePath = nodePath.relative(webcontainer.workdir, dirPath);
+
+      if (!relativePath) {
+        throw new Error(`EINVAL: invalid directory path, delete '${relativePath}'`);
+      }
+
+      // Delete directory and contents recursively
+      await webcontainer.fs.rm(relativePath, { recursive: true });
+      
+      // Remove directory and all contained files from store
+      const files = this.files.get();
+      for (const [path] of Object.entries(files)) {
+        if (path === dirPath || path.startsWith(dirPath + '/')) {
+          this.files.setKey(path, undefined);
+          if (files[path]?.type === 'file') {
+            this.#size--;
+          }
+        }
+      }
+
+      logger.info(`Directory deleted: ${dirPath}`);
+    } catch (error) {
+      logger.error('Failed to delete directory\n\n', error);
+      throw error; 
+    }
+  }
 }
 
 function isBinaryFile(buffer: Uint8Array | undefined) {
