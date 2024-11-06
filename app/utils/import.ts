@@ -5,22 +5,24 @@ import { WebContainerManager } from '~/lib/stores/webcontainer';
 
 export async function importProject(file: File) {
   try {
+    webcontainerStatus.set('idle');
     projectStore.setImporting(true);
     
-    // Validate file
-    if (!file.name.endsWith('.zip') && !file.name.endsWith('.tar.gz')) {
-      throw new Error('Invalid file format. Only .zip and .tar.gz files are supported.');
+    if (file.size > 50 * 1024 * 1024) {
+      throw new Error('File size exceeds 50MB limit');
     }
 
     const webContainerManager = WebContainerManager.getInstance();
     await webContainerManager.importProject(file);
 
-    // Show workbench after successful import
+    webcontainerStatus.set('ready');
     workbenchStore.showWorkbench.set(true);
     
   } catch (error) {
+    webcontainerStatus.set('error');
     projectStore.setError(error instanceof Error ? error.message : 'Failed to import project');
     console.error('Project import failed:', error);
+    throw error;
   } finally {
     projectStore.setImporting(false);
   }

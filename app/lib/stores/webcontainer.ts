@@ -7,13 +7,13 @@ import {
 import { atom } from 'nanostores';
 import type { ITerminal } from '~/types/terminal';
 import JSZip from 'jszip';
+import { workbenchStore } from '~/lib/stores/workbench';
 
-export const webcontainerStatus = atom<WebContainerStatus>(webcontainerInstanceManager.getStatus());
+export const webcontainerStatus = atom<WebContainerStatus>('idle');
 
-function setWebcontainerStatus(status: WebContainerStatus) {
-  webcontainerInstanceManager.setStatus(status);
+export const setWebcontainerStatus = (status: WebContainerStatus) => {
   webcontainerStatus.set(status);
-}
+};
 
 export class WebContainerManager {
   private static instance: WebContainerManager;
@@ -56,6 +56,19 @@ export class WebContainerManager {
       const content = await file.arrayBuffer();
       const zipContent = await zip.loadAsync(content);
       
+      // 首先验证是否存在 package.json
+      let hasPackageJson = false;
+      for (const path of Object.keys(zipContent.files)) {
+        if (path.endsWith('package.json')) {
+          hasPackageJson = true;
+          break;
+        }
+      }
+
+      if (!hasPackageJson) {
+        throw new Error('无效的项目结构: 未找到 package.json 文件');
+      }
+
       const files: Record<string, any> = {};
       const directories = new Set<string>();
       
@@ -92,7 +105,7 @@ export class WebContainerManager {
             if (i === parts.length - 1) {
               current[part] = content;
             } else {
-              // 如果不是最后一个部分，创建或获取目录
+              // 如果不是最后一个部分，创建或获取录
               if (!current[part]) {
                 current[part] = { directory: {} };
               }
@@ -182,8 +195,11 @@ export class WebContainerManager {
         await webcontainer.mount(fileSystemTree);
         
         // 验证文件是否正确挂载
-        const mountedFiles = await webcontainer.fs.readdir('.', { recursive: true });
-        console.log('已挂载的文件:', mountedFiles);
+        console.log('Reading files...');
+        const mountedFiles = await webcontainer.fs.readdir('.', { 
+          withFileTypes: true 
+        });
+        console.log('Files read:', mountedFiles);
         
       } catch (e) {
         console.error('挂载文件失败:', e);
@@ -194,21 +210,56 @@ export class WebContainerManager {
 
       // 更新工作区文件树
       try {
-        const fileList = await webcontainer.fs.readdir('.', { recursive: true });
+        console.log('Reading files for workbench...');
+        const fileList = await webcontainer.fs.readdir('.', { 
+          withFileTypes: true,
+          recursive: true
+        });
+        console.log('Files read:', fileList);
+        
+        if (!fileList || fileList.length === 0) {
+          console.warn('No files found in the container');
+          return;
+        }
+
+        // 确保 workbenchStore 存在
+        if (!workbenchStore) {
+          throw new Error('workbenchStore is not initialized');
+        }
+
         workbenchStore.setFiles(fileList);
+        console.log('Files set in workbench store');
+
+        // 验证文件是否被设置
+        const filesInStore = workbenchStore.files.get();
+        console.log('Files in store after setting:', filesInStore);
+
       } catch (e) {
-        console.error('更新文件树失败:', e);
+        console.error('Failed to update file tree:', e);
+        throw new Error('Failed to update workspace files: ' + (e as Error).message);
       }
 
-      // 检查并处理 package.json
+      // 修改 package.json 检查逻辑
       try {
-        const packageJson = await webcontainer.fs.readFile('package.json', 'utf-8');
-        console.log('找到 package.json:', packageJson);
+        const packageJsonExists = await webcontainer.fs.readFile('package.json', 'utf-8')
+          .then(() => true)
+          .catch(() => false);
+
+        if (!packageJsonExists) {
+          throw new Error('无法读取 package.json 文件');
+        }
         
         await this.setupShellAndDependencies(webcontainer);
         setWebcontainerStatus('ready');
+        
+        // 确保工作区显示
+        if (workbenchStore && workbenchStore.showWorkbench) {
+          workbenchStore.showWorkbench.set(true);
+        }
+        
       } catch (error) {
-        throw new Error('无效的项目结构: 缺少 package.json 文件');
+        console.error('处理 package.json 失:', error);
+        throw new Error('项目初始化失败: ' + (error as Error).message);
       }
       
     } catch (error: any) {
@@ -224,40 +275,34 @@ export class WebContainerManager {
     }
   }
 
-  // 抽取依赖安装逻辑到单独的方法
+  // 修改 setupShellAndDependencies 方法
   private async setupShellAndDependencies(webcontainer: WebContainer) {
     try {
-      // 确保工作目录存在
-      try {
-        await webcontainer.fs.mkdir('/', { recursive: true });
-      } catch (e) {
-        // 忽略已存在错误
-        if (!(e as Error).message.includes('EEXIST')) {
-          throw e;
-        }
-      }
-
       // 启动 shell
       console.log('启动 shell...');
-      const shellProcess = await webcontainer.spawn('jsh', {
+      this.shellProcess = await webcontainer.spawn('jsh', {
         terminal: {
           cols: 80,
           rows: 24,
         }
       });
 
-      shellProcess.output.pipeTo(
-        new WritableStream({
-          write: (data) => {
-            webcontainerContext.terminals.forEach(terminal => {
-              terminal.write(data);
-            });
-          }
-        })
-      );
+      if (this.shellProcess) {
+        this.shellProcess.output.pipeTo(
+          new WritableStream({
+            write: (data) => {
+              webcontainerContext.terminals.forEach(terminal => {
+                terminal.write(data);
+              });
+            }
+          })
+        );
+      }
 
       // 安装依赖
       console.log('开始安装依赖...');
+      setWebcontainerStatus('installing');
+      
       const installProcess = await webcontainer.spawn('npm', ['install']);
       
       installProcess.output.pipeTo(
@@ -277,17 +322,78 @@ export class WebContainerManager {
 
       // 启动开发服务器
       console.log('启动开发服务器...');
-      const startProcess = await webcontainer.spawn('npm', ['run', 'start']);
+      setWebcontainerStatus('starting');
+      
+      // 检查 package.json 中的 scripts
+      const packageJson = JSON.parse(await webcontainer.fs.readFile('package.json', 'utf-8'));
+      console.log('package.json:', packageJson);
+      
+      const startScript = packageJson.scripts?.start || packageJson.scripts?.dev;
+      
+      if (!startScript) {
+        throw new Error('未找到启动脚本 (start 或 dev)');
+      }
+
+      // 启动服务器
+      const startProcess = await webcontainer.spawn('npm', ['run', startScript.includes('start') ? 'start' : 'dev']);
       
       startProcess.output.pipeTo(
         new WritableStream({
           write: (data) => {
+            console.log('Server output:', data);
             webcontainerContext.terminals.forEach(terminal => {
               terminal.write(data);
             });
           }
         })
       );
+
+      // 等待服务器启动
+      let retries = 0;
+      const maxRetries = 30;
+      const checkInterval = 1000;
+
+      while (retries < maxRetries) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, checkInterval));
+          
+          // 使用 WebContainer URL
+          const url = await webcontainer.fs.readFile('package.json', 'utf-8')
+            .then(content => {
+              const pkg = JSON.parse(content);
+              return pkg.proxy || 'http://localhost:3000';
+            })
+            .catch(() => 'http://localhost:3000');
+
+          console.log('Checking server at:', url);
+          
+          // 检查服务是否启动
+          const serverStarted = await new Promise<boolean>(resolve => {
+            const socket = new WebSocket('ws://localhost:3000');
+            
+            socket.onopen = () => {
+              socket.close();
+              resolve(true);
+            };
+            
+            socket.onerror = () => {
+              resolve(false);
+            };
+          });
+
+          if (serverStarted) {
+            console.log('Server started successfully');
+            return;
+          }
+
+        } catch (error) {
+          console.log(`Retry ${retries + 1}/${maxRetries}:`, error);
+        }
+
+        retries++;
+      }
+
+      throw new Error('服务器启动超时');
 
     } catch (error) {
       console.error('Setup shell and dependencies failed:', error);

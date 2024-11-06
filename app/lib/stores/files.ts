@@ -265,6 +265,16 @@ export class FilesStore {
       throw error; 
     }
   }
+
+  setFiles(files: any[]) {
+    const fileMap: Record<string, any> = {};
+    for (const file of files) {
+      fileMap[file.name] = {
+        type: file.isFile() ? 'file' : 'directory'
+      };
+    }
+    this.files.set(fileMap);
+  }
 }
 
 function isBinaryFile(buffer: Uint8Array | undefined) {

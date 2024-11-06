@@ -70,3 +70,20 @@ export const webcontainer = !import.meta.env.SSR
 
 // 导出终端日志存储
 export const terminalLogs: string[] = [];
+
+export const initWebContainer = async () => {
+  try {
+    if (!webcontainerContext.loaded) {
+      webcontainerStatus.set('idle');
+      const container = await WebContainer.boot({
+        workdirName: WORK_DIR_NAME
+      });
+      webcontainerContext.loaded = true;
+      return container;
+    }
+  } catch (error) {
+    webcontainerStatus.set('error');
+    console.error('WebContainer initialization failed:', error);
+    throw error;
+  }
+};

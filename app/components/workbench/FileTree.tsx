@@ -92,6 +92,8 @@ export const FileTree = memo(
       return fileList.filter(isNodeVisible);
     }, [fileList, isNodeVisible]);
 
+    console.log('FileTree received files:', files);
+
     return (
       <div className={classNames('text-sm bg-transparent', className)}>
         {filteredFileList.map((fileOrFolder) => {

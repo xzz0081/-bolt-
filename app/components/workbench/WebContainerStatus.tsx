@@ -15,18 +15,27 @@ const statusMap = {
 export const WebContainerStatus = memo(() => {
   const status = useStore(webcontainerStatus);
 
+  const isLoading = ['importing', 'installing', 'starting'].includes(status);
+
   return (
     <div className="flex items-center px-3 py-2 border-b border-bolt-elements-borderColor">
       <div className="flex items-center gap-2">
         <div
-          className={classNames('w-2 h-2 rounded-full', {
+          className={classNames('w-2 h-2 rounded-full transition-colors duration-200', {
             'bg-gray-400': status === 'idle',
-            'bg-yellow-400 animate-pulse': ['importing', 'installing', 'starting'].includes(status),
+            'bg-yellow-400 animate-pulse': isLoading,
             'bg-green-400': status === 'ready',
             'bg-red-400': status === 'error',
           })}
         />
-        <span className="text-sm">{statusMap[status]}</span>
+        <span className="text-sm">
+          {statusMap[status] || 'Unknown Status'}
+        </span>
+        {isLoading && (
+          <span className="text-xs text-gray-500 animate-pulse">
+            请稍候...
+          </span>
+        )}
       </div>
     </div>
   );

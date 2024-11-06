@@ -24,10 +24,10 @@ type Artifacts = MapStore<Record<string, ArtifactState>>;
 export type WorkbenchViewType = 'code' | 'preview';
 
 export class WorkbenchStore {
-  #previewsStore = new PreviewsStore(webcontainer);
-  #filesStore = new FilesStore(webcontainer);
+  #previewsStore = new PreviewsStore(webcontainer!);
+  #filesStore = new FilesStore(webcontainer!);
   #editorStore = new EditorStore(this.#filesStore);
-  #terminalStore = new TerminalStore(webcontainer);
+  #terminalStore = new TerminalStore(webcontainer!);
 
   artifacts: Artifacts = import.meta.hot?.data.artifacts ?? map({});
 
@@ -225,6 +225,10 @@ export class WorkbenchStore {
       this.artifactIdList.push(messageId);
     }
 
+    if (!webcontainer) {
+      throw new Error('WebContainer is not initialized');
+    }
+
     this.artifacts.setKey(messageId, {
       id,
       title,
@@ -309,6 +313,26 @@ export class WorkbenchStore {
       console.error('Failed to delete:', error);
       throw error;
     }
+  }
+
+  setFiles(files: any[]) {
+    console.log('Setting files:', files);
+    this.#filesStore.setFiles(files);
+    
+    // 如果有文件且没有选中的文件，自动选择第一个文件
+    if (this.#filesStore.filesCount > 0 && !this.selectedFile.get()) {
+      for (const file of files) {
+        if (file.isFile()) {
+          this.setSelectedFile(file.name);
+          break;
+        }
+      }
+    }
+  }
+
+  toggleWorkbench(show?: boolean) {
+    const newValue = show ?? !this.showWorkbench.get();
+    this.showWorkbench.set(newValue);
   }
 }
 
