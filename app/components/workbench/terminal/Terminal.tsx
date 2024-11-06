@@ -21,34 +21,44 @@ export interface TerminalProps {
 }
 
 export const Terminal = memo(
-  forwardRef<TerminalRef, TerminalProps>(({ className, theme, onTerminalReady, onTerminalResize }, ref) => {
+  forwardRef<TerminalRef, TerminalProps>(({ className, theme, readonly, onTerminalReady, onTerminalResize }, ref) => {
+    const terminalElementRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<XTerm>();
-    const fitAddonRef = useRef<FitAddon>();
-    
+
     useEffect(() => {
-      const terminal = new XTerm({
-        theme: getTerminalTheme(theme),
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        fontSize: 14,
-        lineHeight: 1.2,
-        cursorBlink: true,
-      });
+      const element = terminalElementRef.current!;
 
       const fitAddon = new FitAddon();
       const webLinksAddon = new WebLinksAddon();
 
-      terminal.loadAddon(fitAddon);
-      terminal.loadAddon(webLinksAddon);
+      const terminal = new XTerm({
+        cursorBlink: true,
+        convertEol: true,
+        disableStdin: readonly,
+        theme: getTerminalTheme(readonly ? { cursor: '#00000000' } : {}),
+        fontSize: 12,
+        fontFamily: 'Menlo, courier-new, courier, monospace',
+      });
 
       terminalRef.current = terminal;
-      fitAddonRef.current = fitAddon;
 
-      terminal.open(containerRef.current!);
-      fitAddon.fit();
+      terminal.loadAddon(fitAddon);
+      terminal.loadAddon(webLinksAddon);
+      terminal.open(element);
+
+      const resizeObserver = new ResizeObserver(() => {
+        fitAddon.fit();
+        onTerminalResize?.(terminal.cols, terminal.rows);
+      });
+
+      resizeObserver.observe(element);
+
+      logger.info('Attach terminal');
 
       onTerminalReady?.(terminal);
 
       return () => {
+        resizeObserver.disconnect();
         terminal.dispose();
       };
     }, []);
@@ -57,19 +67,19 @@ export const Terminal = memo(
       const terminal = terminalRef.current!;
 
       // we render a transparent cursor in case the terminal is readonly
-      terminal.options.theme = getTerminalTheme(theme.readonly ? { cursor: '#00000000' } : {});
+      terminal.options.theme = getTerminalTheme(readonly ? { cursor: '#00000000' } : {});
 
-      terminal.options.disableStdin = theme.readonly;
-    }, [theme]);
+      terminal.options.disableStdin = readonly;
+    }, [theme, readonly]);
 
     useImperativeHandle(ref, () => {
       return {
         reloadStyles: () => {
           const terminal = terminalRef.current!;
-          terminal.options.theme = getTerminalTheme(theme.readonly ? { cursor: '#00000000' } : {});
+          terminal.options.theme = getTerminalTheme(readonly ? { cursor: '#00000000' } : {});
         },
       };
-    }, [theme]);
+    }, []);
 
     return <div className={className} ref={terminalElementRef} />;
   }),

@@ -27,15 +27,6 @@ export default defineConfig((config) => {
       chrome129IssuePlugin(),
       config.mode === 'production' && optimizeCssModules({ apply: 'build' }),
     ],
-    optimizeDeps: {
-      exclude: ['@webcontainer/api'],
-    },
-    server: {
-      headers: {
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-      },
-    },
   };
 });
 

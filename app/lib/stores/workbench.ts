@@ -9,8 +9,6 @@ import { EditorStore } from './editor';
 import { FilesStore, type FileMap } from './files';
 import { PreviewsStore } from './previews';
 import { TerminalStore } from './terminal';
-import { normalizeFilePath } from '~/utils/fs';
-import { Buffer } from 'node:buffer';
 
 export interface ArtifactState {
   id: string;
@@ -280,28 +278,6 @@ export class WorkbenchStore {
     
     // Create file in webcontainer
     await this.#filesStore.writeFile(normalizedPath, content);
-  }
-
-  async writeFile(path: string, content: string | Uint8Array) {
-    const normalizedPath = normalizeFilePath(path);
-    await this.#filesStore.writeFile(normalizedPath, 
-      content instanceof Uint8Array ? content : Buffer.from(content)
-    );
-  }
-
-  async readFile(path: string): Promise<string | undefined> {
-    const file = this.#filesStore.getFile(normalizeFilePath(path));
-    return file?.content;
-  }
-
-  async deleteFile(path: string) {
-    const webcontainerInstance = await webcontainer;
-    await webcontainerInstance.fs.rm(normalizeFilePath(path), { recursive: true });
-  }
-
-  async createDirectory(path: string) {
-    const webcontainerInstance = await webcontainer;
-    await webcontainerInstance.fs.mkdir(normalizeFilePath(path), { recursive: true });
   }
 }
 
