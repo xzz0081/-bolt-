@@ -9,6 +9,13 @@ export default defineConfig((config) => {
   return {
     build: {
       target: 'esnext',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'webcontainer': ['@webcontainer/api'],
+          },
+        },
+      },
     },
     plugins: [
       nodePolyfills({
@@ -27,6 +34,12 @@ export default defineConfig((config) => {
       chrome129IssuePlugin(),
       config.mode === 'production' && optimizeCssModules({ apply: 'build' }),
     ],
+    server: {
+      headers: {
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+      },
+    },
   };
 });
 

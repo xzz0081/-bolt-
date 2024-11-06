@@ -4,6 +4,7 @@ import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { webcontainerManager } from '~/lib/stores/webcontainer';
+import { toast } from 'react-toastify';
 
 interface HeaderActionButtonsProps {}
 
@@ -40,7 +41,7 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
   const [importing, setImporting] = useState(false);
 
   const handleImportProject = async () => {
-    console.log('点击导入按钮'); // 调试日志
+    console.log('点击导入按钮');
     if (importing) return;
 
     try {
@@ -53,30 +54,38 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
         
-        console.log('选择文件:', file.name); // 调试日志
+        if (!file.name.endsWith('.zip') && !file.name.endsWith('.tar.gz')) {
+          toast.error('请选择 .zip 或 .tar.gz 格式的文件');
+          return;
+        }
+        
+        if (file.size > 50 * 1024 * 1024) {
+          toast.error('文件大小超过限制 (50MB)');
+          return;
+        }
+        
+        console.log('选择文件:', file.name);
         setImporting(true);
         
         try {
-          console.log('开始导入项目'); // 调试日志
+          console.log('开始导入项目');
           await webcontainerManager.importProject(file);
           
-          // 显示工作区
           workbenchStore.showWorkbench.set(true);
-          
-          // 显示成功消息
-          console.log('项目导入成功'); // 调试日志
+          toast.success('项目导入成功');
         } catch (error) {
-          console.error('导入失败:', error); // 调试日志
+          console.error('导入失败:', error);
+          toast.error('项目导入失败: ' + (error as Error).message);
         } finally {
           setImporting(false);
         }
       };
 
-      // 触发文件选择
       input.click();
     } catch (error) {
-      console.error('创建文件选择器失败:', error);
+      console.error('导入操作失败:', error);
       setImporting(false);
+      toast.error('导入操作失败');
     }
   };
 

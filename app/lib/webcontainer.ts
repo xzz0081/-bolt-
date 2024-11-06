@@ -1,42 +1,8 @@
 import { WebContainer } from '@webcontainer/api';
-import { WORK_DIR_NAME } from '~/utils/constants';
 import type { ITerminal } from '~/types/terminal';
 
 // WebContainer 状态类型
 export type WebContainerStatus = 'idle' | 'importing' | 'installing' | 'starting' | 'ready' | 'error';
-
-// WebContainer 实例管理器
-class WebContainerInstanceManager {
-  private status: WebContainerStatus = 'idle';
-  private webcontainerInstance: Promise<WebContainer>;
-
-  constructor() {
-    if (!import.meta.env.SSR) {
-      this.webcontainerInstance = this.bootWebContainer();
-    } else {
-      // 在 SSR 环境下提供一个永远pending的Promise
-      this.webcontainerInstance = new Promise(() => {});
-    }
-  }
-
-  private async bootWebContainer(): Promise<WebContainer> {
-    const container = await WebContainer.boot({ workdirName: WORK_DIR_NAME });
-    webcontainerContext.loaded = true;
-    return container;
-  }
-
-  public getStatus(): WebContainerStatus {
-    return this.status;
-  }
-
-  public setStatus(status: WebContainerStatus) {
-    this.status = status;
-  }
-
-  public async getWebContainer(): Promise<WebContainer> {
-    return this.webcontainerInstance;
-  }
-}
 
 // WebContainer 上下文
 export interface WebContainerContext {
@@ -49,8 +15,53 @@ export const webcontainerContext: WebContainerContext = {
   terminals: [],
 };
 
-// 导出实例管理器
-export const webcontainerInstanceManager = new WebContainerInstanceManager();
+// WebContainer 实例管理器
+class WebContainerInstanceManager {
+  private static instance: WebContainerInstanceManager | null = null;
+  private webcontainerInstance: WebContainer | null = null;
+  private bootPromise: Promise<WebContainer> | null = null;
+  private status: WebContainerStatus = 'idle';
+
+  private constructor() {}
+
+  static getInstance(): WebContainerInstanceManager {
+    if (!WebContainerInstanceManager.instance) {
+      WebContainerInstanceManager.instance = new WebContainerInstanceManager();
+    }
+    return WebContainerInstanceManager.instance;
+  }
+
+  public getStatus(): WebContainerStatus {
+    return this.status;
+  }
+
+  public setStatus(status: WebContainerStatus) {
+    this.status = status;
+  }
+
+  public async getWebContainer(): Promise<WebContainer> {
+    if (this.webcontainerInstance) {
+      return this.webcontainerInstance;
+    }
+
+    if (!this.bootPromise) {
+      this.bootPromise = (async () => {
+        try {
+          this.webcontainerInstance = await WebContainer.boot();
+          webcontainerContext.loaded = true;
+          return this.webcontainerInstance;
+        } catch (error) {
+          this.bootPromise = null;
+          throw error;
+        }
+      })();
+    }
+
+    return this.bootPromise;
+  }
+}
+
+export const webcontainerInstanceManager = WebContainerInstanceManager.getInstance();
 
 // 导出 WebContainer 实例
 export const webcontainer = !import.meta.env.SSR 
