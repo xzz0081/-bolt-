@@ -211,10 +211,59 @@ export class WebContainerManager {
       // 更新工作区文件树
       try {
         console.log('Reading files for workbench...');
-        const fileList = await webcontainer.fs.readdir('.', { 
-          withFileTypes: true,
-          recursive: true
-        });
+        const readDirRecursive = async (path: string): Promise<any[]> => {
+          try {
+            console.log('Reading directory:', path);
+            const entries = await webcontainer.fs.readdir(path, { withFileTypes: true });
+            console.log('Entries found in', path, ':', entries);
+            
+            const files = await Promise.all(
+              entries.map(async (entry) => {
+                const fullPath = path === '.' ? entry.name : `${path}/${entry.name}`;
+                const isFile = entry.isFile();
+                const isDir = entry.isDirectory();
+                
+                console.log('Processing entry:', {
+                  path: fullPath,
+                  isFile,
+                  isDir
+                });
+                
+                if (isDir) {
+                  const children = await readDirRecursive(fullPath);
+                  return [{
+                    name: fullPath,
+                    isFile: () => false,
+                    isDirectory: () => true,
+                    type: 'folder'
+                  }, ...children];
+                }
+                
+                // 如果是文件，尝试读取内容
+                let content = '';
+                try {
+                  content = await webcontainer.fs.readFile(fullPath, 'utf-8');
+                } catch (error) {
+                  console.warn(`Could not read file content for ${fullPath}:`, error);
+                }
+                
+                return {
+                  name: fullPath,
+                  isFile: () => true,
+                  isDirectory: () => false,
+                  type: 'file',
+                  content
+                };
+              })
+            );
+            return files.flat();
+          } catch (error) {
+            console.error('Error reading directory:', path, error);
+            throw error;
+          }
+        };
+
+        const fileList = await readDirRecursive('.');
         console.log('Files read:', fileList);
         
         if (!fileList || fileList.length === 0) {
@@ -348,7 +397,7 @@ export class WebContainerManager {
         })
       );
 
-      // 等待服务器启动
+      // 修改服务器检测逻辑
       let retries = 0;
       const maxRetries = 30;
       const checkInterval = 1000;
@@ -357,31 +406,11 @@ export class WebContainerManager {
         try {
           await new Promise(resolve => setTimeout(resolve, checkInterval));
           
-          // 使用 WebContainer URL
-          const url = await webcontainer.fs.readFile('package.json', 'utf-8')
-            .then(content => {
-              const pkg = JSON.parse(content);
-              return pkg.proxy || 'http://localhost:3000';
-            })
-            .catch(() => 'http://localhost:3000');
-
-          console.log('Checking server at:', url);
+          // 使用 HTTP 请求替代 WebSocket 检测
+          const response = await fetch('http://localhost:3000');
           
-          // 检查服务是否启动
-          const serverStarted = await new Promise<boolean>(resolve => {
-            const socket = new WebSocket('ws://localhost:3000');
-            
-            socket.onopen = () => {
-              socket.close();
-              resolve(true);
-            };
-            
-            socket.onerror = () => {
-              resolve(false);
-            };
-          });
-
-          if (serverStarted) {
+          // 即使返回 404 也认为服务器已启动
+          if (response.status === 404 || response.ok) {
             console.log('Server started successfully');
             return;
           }

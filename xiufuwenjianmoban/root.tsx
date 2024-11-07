@@ -81,17 +81,3 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   return <Outlet />;
 }
-
-export function headers() {
-  return {
-    'Content-Security-Policy': `
-      default-src 'self' 'unsafe-inline' 'unsafe-eval';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval';
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-      font-src 'self' https://fonts.gstatic.com;
-      img-src 'self' data: blob:;
-      frame-src 'self' https://stackblitz.com;
-      connect-src 'self' ws: wss: http: https:;
-    `.replace(/\s+/g, ' ').trim(),
-  };
-}

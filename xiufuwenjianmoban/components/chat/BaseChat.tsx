@@ -1,5 +1,3 @@
-// @ts-nocheck
-// Preventing TS checks with files presented in the video for a better presentation.
 import type { Message } from 'ai';
 import React, { type RefCallback } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
@@ -7,21 +5,10 @@ import { Menu } from '~/components/sidebar/Menu.client';
 import { IconButton } from '~/components/ui/IconButton';
 import { Workbench } from '~/components/workbench/Workbench.client';
 import { classNames } from '~/utils/classNames';
-import { MODEL_LIST } from '~/utils/constants';
 import { Messages } from './Messages.client';
 import { SendButton } from './SendButton.client';
 
 import styles from './BaseChat.module.scss';
-
-const EXAMPLE_PROMPTS = [
-  { text: '使用 React 和 Tailwind 构建一个待办事项应用' },
-  { text: '使用 Astro 构建一个简单的博客' },
-  { text: '使用 Material UI 创建一个 cookie 同意表单' },
-  { text: '制作一个太空入侵者游戏' },
-  { text: '如何让一个 div 居中?' },
-];
-
-const TEXTAREA_MIN_HEIGHT = 76;
 
 interface BaseChatProps {
   textareaRef?: React.RefObject<HTMLTextAreaElement> | undefined;
@@ -34,13 +21,21 @@ interface BaseChatProps {
   enhancingPrompt?: boolean;
   promptEnhanced?: boolean;
   input?: string;
-  model: string;
-  setModel: (model: string) => void;
   handleStop?: () => void;
   sendMessage?: (event: React.UIEvent, messageInput?: string) => void;
   handleInputChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   enhancePrompt?: () => void;
 }
+
+const EXAMPLE_PROMPTS = [
+  { text: 'Build a todo app in React using Tailwind' },
+  { text: 'Build a simple blog using Astro' },
+  { text: 'Create a cookie consent form using Material UI' },
+  { text: 'Make a space invaders game' },
+  { text: 'How do I center a div?' },
+];
+
+const TEXTAREA_MIN_HEIGHT = 76;
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
   (
@@ -55,8 +50,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       promptEnhanced = false,
       messages,
       input = '',
-      model,
-      setModel,
       sendMessage,
       handleInputChange,
       enhancePrompt,
@@ -76,15 +69,15 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         data-chat-visible={showChat}
       >
         <ClientOnly>{() => <Menu />}</ClientOnly>
-        <div ref={scrollRef} className="flex overflow-scroll w-full h-full">
+        <div ref={scrollRef} className="flex overflow-y-auto w-full h-full">
           <div className={classNames(styles.Chat, 'flex flex-col flex-grow min-w-[var(--chat-min-width)] h-full')}>
             {!chatStarted && (
               <div id="intro" className="mt-[26vh] max-w-chat mx-auto">
                 <h1 className="text-5xl text-center font-bold text-bolt-elements-textPrimary mb-2">
-                  创意开始的地方
+                  Where ideas begin
                 </h1>
                 <p className="mb-4 text-center text-bolt-elements-textSecondary">
-                  在几秒钟内将想法变为现实，或获取现有项目的帮助。
+                  Bring ideas to life in seconds or get help on existing projects.
                 </p>
               </div>
             )}
@@ -110,20 +103,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                   'sticky bottom-0': chatStarted,
                 })}
               >
-                {/* Model selection dropdown */}
-                <div className="mb-2">
-                  <select
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="w-full p-2 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-prompt-background text-bolt-elements-textPrimary focus:outline-none"
-                  >
-                    {MODEL_LIST.map((modelOption) => (
-                      <option key={modelOption.name} value={modelOption.name}>
-                        {modelOption.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
                 <div
                   className={classNames(
                     'shadow-sm border border-bolt-elements-borderColor bg-bolt-elements-prompt-background backdrop-filter backdrop-blur-[8px] rounded-lg overflow-hidden',

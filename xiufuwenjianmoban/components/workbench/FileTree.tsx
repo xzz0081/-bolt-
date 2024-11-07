@@ -1,9 +1,7 @@
-import { memo, useEffect, useMemo, useState, type ReactNode, useRef, useCallback } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { FileMap } from '~/lib/stores/files';
 import { classNames } from '~/utils/classNames';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
-import { toast } from 'react-toastify';
-import { workbenchStore } from '~/lib/stores/workbench';
 
 const logger = createScopedLogger('FileTree');
 
@@ -30,80 +28,90 @@ export const FileTree = memo(
     selectedFile,
     rootFolder,
     hideRoot = false,
-    collapsed = true,
+    collapsed = false,
     allowFolderSelection = false,
     hiddenFiles,
     className,
     unsavedFiles,
   }: Props) => {
-    console.log('FileTree render with:', {
-      filesCount: Object.keys(files).length,
-      selectedFile,
-      rootFolder,
-      hideRoot
-    });
-    
     renderLogger.trace('FileTree');
 
     const computedHiddenFiles = useMemo(() => [...DEFAULT_HIDDEN_FILES, ...(hiddenFiles ?? [])], [hiddenFiles]);
 
     const fileList = useMemo(() => {
-      console.log('Building file list with files:', files);
       return buildFileList(files, rootFolder, hideRoot, computedHiddenFiles);
     }, [files, rootFolder, hideRoot, computedHiddenFiles]);
 
-    const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
-      if (collapsed) {
-        return new Set(
-          fileList
-            .filter((item) => item.kind === 'folder')
-            .map((item) => item.fullPath)
-        );
-      }
-      return new Set<string>();
+    const [collapsedFolders, setCollapsedFolders] = useState(() => {
+      return collapsed
+        ? new Set(fileList.filter((item) => item.kind === 'folder').map((item) => item.fullPath))
+        : new Set<string>();
     });
 
     useEffect(() => {
       if (collapsed) {
-        setCollapsedFolders(new Set(
-          fileList
-            .filter((item) => item.kind === 'folder')
-            .map((item) => item.fullPath)
-        ));
+        setCollapsedFolders(new Set(fileList.filter((item) => item.kind === 'folder').map((item) => item.fullPath)));
+        return;
       }
+
+      setCollapsedFolders((prevCollapsed) => {
+        const newCollapsed = new Set<string>();
+
+        for (const folder of fileList) {
+          if (folder.kind === 'folder' && prevCollapsed.has(folder.fullPath)) {
+            newCollapsed.add(folder.fullPath);
+          }
+        }
+
+        return newCollapsed;
+      });
     }, [fileList, collapsed]);
 
-    const toggleCollapseState = (fullPath: string) => {
-      setCollapsedFolders(prev => {
-        const next = new Set(prev);
-        if (next.has(fullPath)) {
-          next.delete(fullPath);
-        } else {
-          next.add(fullPath);
+    const filteredFileList = useMemo(() => {
+      const list = [];
+
+      let lastDepth = Number.MAX_SAFE_INTEGER;
+
+      for (const fileOrFolder of fileList) {
+        const depth = fileOrFolder.depth;
+
+        // if the depth is equal we reached the end of the collaped group
+        if (lastDepth === depth) {
+          lastDepth = Number.MAX_SAFE_INTEGER;
         }
-        return next;
+
+        // ignore collapsed folders
+        if (collapsedFolders.has(fileOrFolder.fullPath)) {
+          lastDepth = Math.min(lastDepth, depth);
+        }
+
+        // ignore files and folders below the last collapsed folder
+        if (lastDepth < depth) {
+          continue;
+        }
+
+        list.push(fileOrFolder);
+      }
+
+      return list;
+    }, [fileList, collapsedFolders]);
+
+    const toggleCollapseState = (fullPath: string) => {
+      setCollapsedFolders((prevSet) => {
+        const newSet = new Set(prevSet);
+
+        if (newSet.has(fullPath)) {
+          newSet.delete(fullPath);
+        } else {
+          newSet.add(fullPath);
+        }
+
+        return newSet;
       });
     };
 
-    const isNodeVisible = useCallback((node: Node): boolean => {
-      let currentPath = node.fullPath;
-      while (currentPath.includes('/')) {
-        currentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
-        if (currentPath && collapsedFolders.has(currentPath)) {
-          return false;
-        }
-      }
-      return true;
-    }, [collapsedFolders]);
-
-    const filteredFileList = useMemo(() => {
-      return fileList.filter(isNodeVisible);
-    }, [fileList, isNodeVisible]);
-
-    console.log('FileTree received files:', files);
-
     return (
-      <div className={classNames('text-sm bg-transparent', className)}>
+      <div className={classNames('text-sm', className)}>
         {filteredFileList.map((fileOrFolder) => {
           switch (fileOrFolder.kind) {
             case 'file': {
@@ -151,50 +159,22 @@ interface FolderProps {
   onClick: () => void;
 }
 
-function Folder({ folder: { depth, name, fullPath }, collapsed, selected = false, onClick }: FolderProps) {
-  const handleDelete = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    if (confirm(`Are you sure you want to delete ${name} and all its contents?`)) {
-      try {
-        await workbenchStore.deleteFile(fullPath);
-      } catch (error) {
-        toast.error(`Failed to delete ${name}`);
-      }
-    }
-  };
-
+function Folder({ folder: { depth, name }, collapsed, selected = false, onClick }: FolderProps) {
   return (
     <NodeButton
+      className={classNames('group', {
+        'bg-transparent text-bolt-elements-item-contentDefault hover:text-bolt-elements-item-contentActive hover:bg-bolt-elements-item-backgroundActive':
+          !selected,
+        'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent': selected,
+      })}
       depth={depth}
-      className={classNames('group relative', {
-        'text-bolt-elements-item-contentAccent bg-bolt-elements-item-backgroundAccent': selected,
-        'text-bolt-elements-item-contentDefault hover:text-bolt-elements-item-contentActive hover:bg-bolt-elements-item-backgroundHover': !selected,
+      iconClasses={classNames({
+        'i-ph:caret-right scale-98': collapsed,
+        'i-ph:caret-down scale-98': !collapsed,
       })}
       onClick={onClick}
     >
-      <div className="flex items-center gap-2 w-full">
-        <div 
-          className={classNames('i-ph:caret-right-bold shrink-0 transition-transform', {
-            'rotate-90': !collapsed
-          })}
-        />
-        <div className="i-ph:folder-duotone shrink-0" />
-        <span className="truncate">{name}</span>
-      </div>
-      
-      <button
-        className={classNames(
-          'absolute right-2 top-1/2 -translate-y-1/2',
-          'opacity-0 group-hover:opacity-100 transition-opacity duration-200',
-          'text-bolt-elements-item-contentMuted hover:text-bolt-elements-item-contentActive',
-          'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColor rounded'
-        )}
-        onClick={handleDelete}
-        title="Delete folder"
-      >
-        <div className="i-ph:trash scale-90" />
-      </button>
+      {name}
     </NodeButton>
   );
 }
@@ -206,74 +186,51 @@ interface FileProps {
   onClick: () => void;
 }
 
-function File({ file: { depth, name, fullPath }, selected = false, unsavedChanges = false, onClick }: FileProps) {
-  const handleDelete = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    if (confirm(`Are you sure you want to delete ${name}?`)) {
-      try {
-        await workbenchStore.deleteFile(fullPath);
-      } catch (error) {
-        toast.error(`Failed to delete ${name}`);
-      }
-    }
-  };
-
+function File({ file: { depth, name }, onClick, selected, unsavedChanges = false }: FileProps) {
   return (
     <NodeButton
+      className={classNames('group', {
+        'bg-transparent hover:bg-bolt-elements-item-backgroundActive text-bolt-elements-item-contentDefault': !selected,
+        'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent': selected,
+      })}
       depth={depth}
-      className={classNames('group relative', {
-        'text-bolt-elements-item-contentAccent bg-bolt-elements-item-backgroundAccent': selected,
-        'text-bolt-elements-item-contentDefault hover:text-bolt-elements-item-contentActive hover:bg-bolt-elements-item-backgroundHover': !selected,
+      iconClasses={classNames('i-ph:file-duotone scale-98', {
+        'group-hover:text-bolt-elements-item-contentActive': !selected,
       })}
       onClick={onClick}
     >
-      <div className="flex items-center gap-2 w-full">
-        <div className="i-ph:file-duotone shrink-0" />
-        <span className="truncate">{name}</span>
-        {unsavedChanges && (
-          <div className="i-ph:circle-fill scale-75 text-bolt-elements-warningForeground" />
-        )}
-      </div>
-
-      <button
-        className={classNames(
-          'absolute right-2 top-1/2 -translate-y-1/2',
-          'opacity-0 group-hover:opacity-100 transition-opacity duration-200',
-          'text-bolt-elements-item-contentMuted hover:text-bolt-elements-item-contentActive',
-          'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColor rounded'
-        )}
-        onClick={handleDelete}
-        title="Delete file"
+      <div
+        className={classNames('flex items-center', {
+          'group-hover:text-bolt-elements-item-contentActive': !selected,
+        })}
       >
-        <div className="i-ph:trash scale-90" />
-      </button>
+        <div className="flex-1 truncate pr-2">{name}</div>
+        {unsavedChanges && <span className="i-ph:circle-fill scale-68 shrink-0 text-orange-500" />}
+      </div>
     </NodeButton>
   );
 }
 
 interface ButtonProps {
   depth: number;
+  iconClasses: string;
   children: ReactNode;
   className?: string;
   onClick?: () => void;
-  iconClasses?: string;
 }
 
-function NodeButton({ depth, children, className, onClick }: ButtonProps) {
+function NodeButton({ depth, iconClasses, onClick, className, children }: ButtonProps) {
   return (
     <button
       className={classNames(
-        'flex items-center w-full px-2 py-1',
-        'transition-colors duration-200 ease-in-out',
-        'border-l-2 border-transparent',
-        'bg-transparent',
-        className
+        'flex items-center gap-1.5 w-full pr-2 border-2 border-transparent text-faded py-0.5',
+        className,
       )}
       style={{ paddingLeft: `${6 + depth * NODE_PADDING_LEFT}px` }}
-      onClick={onClick}
+      onClick={() => onClick?.()}
     >
-      {children}
+      <div className={classNames('scale-120 shrink-0', iconClasses)}></div>
+      <div className="truncate w-full text-left">{children}</div>
     </button>
   );
 }
@@ -301,57 +258,63 @@ function buildFileList(
   hideRoot: boolean,
   hiddenFiles: Array<string | RegExp>,
 ): Node[] {
-  console.log('Building file list with files:', files);
   const folderPaths = new Set<string>();
   const fileList: Node[] = [];
 
   let defaultDepth = 0;
 
-  // 创建根文件夹
   if (rootFolder === '/' && !hideRoot) {
     defaultDepth = 1;
     fileList.push({ kind: 'folder', name: '/', depth: 0, id: 0, fullPath: '/' });
   }
 
-  // 处理所有条目
   for (const [filePath, dirent] of Object.entries(files)) {
-    if (!dirent) continue;
+    const segments = filePath.split('/').filter((segment) => segment);
+    const fileName = segments.at(-1);
 
-    const segments = filePath.split('/').filter(Boolean);
-    const name = segments[segments.length - 1] || filePath;
-    
-    // 检查是否应该隐藏
-    if (isHiddenFile(filePath, name, hiddenFiles)) {
+    if (!fileName || isHiddenFile(filePath, fileName, hiddenFiles)) {
       continue;
     }
 
-    // 确保父文件夹存在
     let currentPath = '';
-    for (let i = 0; i < segments.length - 1; i++) {
-      currentPath += '/' + segments[i];
-      if (!folderPaths.has(currentPath)) {
-        folderPaths.add(currentPath);
+
+    let i = 0;
+    let depth = 0;
+
+    while (i < segments.length) {
+      const name = segments[i];
+      const fullPath = (currentPath += `/${name}`);
+
+      if (!fullPath.startsWith(rootFolder) || (hideRoot && fullPath === rootFolder)) {
+        i++;
+        continue;
+      }
+
+      if (i === segments.length - 1 && dirent?.type === 'file') {
+        fileList.push({
+          kind: 'file',
+          id: fileList.length,
+          name,
+          fullPath,
+          depth: depth + defaultDepth,
+        });
+      } else if (!folderPaths.has(fullPath)) {
+        folderPaths.add(fullPath);
+
         fileList.push({
           kind: 'folder',
           id: fileList.length,
-          name: segments[i],
-          fullPath: currentPath,
-          depth: i + defaultDepth
+          name,
+          fullPath,
+          depth: depth + defaultDepth,
         });
       }
-    }
 
-    // 添加文件或文件夹
-    fileList.push({
-      kind: dirent.type === 'file' ? 'file' : 'folder',
-      id: fileList.length,
-      name,
-      fullPath: filePath,
-      depth: segments.length - 1 + defaultDepth
-    });
+      i++;
+      depth++;
+    }
   }
 
-  console.log('Final file list:', fileList);
   return sortFileList(rootFolder, fileList, hideRoot);
 }
 

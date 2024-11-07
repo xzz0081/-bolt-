@@ -24,10 +24,10 @@ type Artifacts = MapStore<Record<string, ArtifactState>>;
 export type WorkbenchViewType = 'code' | 'preview';
 
 export class WorkbenchStore {
-  #previewsStore = new PreviewsStore(webcontainer!);
-  #filesStore = new FilesStore(webcontainer!);
+  #previewsStore = new PreviewsStore(webcontainer);
+  #filesStore = new FilesStore(webcontainer);
   #editorStore = new EditorStore(this.#filesStore);
-  #terminalStore = new TerminalStore(webcontainer!);
+  #terminalStore = new TerminalStore(webcontainer);
 
   artifacts: Artifacts = import.meta.hot?.data.artifacts ?? map({});
 
@@ -225,10 +225,6 @@ export class WorkbenchStore {
       this.artifactIdList.push(messageId);
     }
 
-    if (!webcontainer) {
-      throw new Error('WebContainer is not initialized');
-    }
-
     this.artifacts.setKey(messageId, {
       id,
       title,
@@ -274,77 +270,6 @@ export class WorkbenchStore {
   #getArtifact(id: string) {
     const artifacts = this.artifacts.get();
     return artifacts[id];
-  }
-
-  async addFile(path: string, content: Uint8Array) {
-    // Normalize path and remove leading slash
-    const normalizedPath = path.replace(/^\/+/, '');
-    
-    // Create file in webcontainer
-    await this.#filesStore.writeFile(normalizedPath, content);
-  }
-
-  async deleteFile(filePath: string) {
-    try {
-      const dirent = this.files.get()[filePath];
-      
-      if (!dirent) {
-        throw new Error(`File not found: ${filePath}`);
-      }
-
-      if (dirent.type === 'file') {
-        await this.#filesStore.deleteFile(filePath);
-      } else {
-        await this.#filesStore.deleteDirectory(filePath);
-      }
-
-      // Clear selection if deleted file was selected
-      if (this.selectedFile.get() === filePath) {
-        this.setSelectedFile(undefined);
-      }
-
-      // Remove from unsaved files if present
-      const unsaved = this.unsavedFiles.get();
-      if (unsaved.has(filePath)) {
-        unsaved.delete(filePath);
-        this.unsavedFiles.set(new Set(unsaved));
-      }
-    } catch (error) {
-      console.error('Failed to delete:', error);
-      throw error;
-    }
-  }
-
-  setFiles(files: any[]) {
-    console.log('WorkbenchStore setFiles called with:', files);
-    
-    // 确保文件列表有效
-    if (!Array.isArray(files) || files.length === 0) {
-      console.warn('Invalid or empty files array');
-      return;
-    }
-    
-    this.#filesStore.setFiles(files);
-    
-    // 验证文件是否被正确设置
-    const storedFiles = this.files.get();
-    console.log('Files in store after setting:', storedFiles);
-    
-    // 如果有文件且没有选中的文件，自动选择第一个文件
-    if (this.#filesStore.filesCount > 0 && !this.selectedFile.get()) {
-      for (const file of files) {
-        if (file.isFile()) {
-          console.log('Selecting first file:', file.name);
-          this.setSelectedFile(file.name);
-          break;
-        }
-      }
-    }
-  }
-
-  toggleWorkbench(show?: boolean) {
-    const newValue = show ?? !this.showWorkbench.get();
-    this.showWorkbench.set(newValue);
   }
 }
 
