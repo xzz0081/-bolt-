@@ -53,52 +53,87 @@ export const FileTree = memo(
     }, [files, rootFolder, hideRoot, computedHiddenFiles]);
 
     const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
-      if (collapsed) {
-        return new Set(
-          fileList
-            .filter((item) => item.kind === 'folder')
-            .map((item) => item.fullPath)
-        );
+      const allFolders = new Set<string>();
+      for (const [filePath, dirent] of Object.entries(files)) {
+        if (dirent?.type === 'folder') {
+          allFolders.add(filePath);
+        }
+        let parentPath = filePath;
+        while (parentPath.includes('/')) {
+          parentPath = parentPath.substring(0, parentPath.lastIndexOf('/'));
+          if (parentPath) {
+            allFolders.add(parentPath);
+          }
+        }
       }
-      return new Set<string>();
+      return allFolders;
     });
 
     useEffect(() => {
       if (collapsed) {
-        setCollapsedFolders(new Set(
-          fileList
-            .filter((item) => item.kind === 'folder')
-            .map((item) => item.fullPath)
-        ));
+        const allFolders = new Set<string>();
+        for (const [filePath, dirent] of Object.entries(files)) {
+          if (dirent?.type === 'folder') {
+            allFolders.add(filePath);
+          }
+          let parentPath = filePath;
+          while (parentPath.includes('/')) {
+            parentPath = parentPath.substring(0, parentPath.lastIndexOf('/'));
+            if (parentPath) {
+              allFolders.add(parentPath);
+            }
+          }
+        }
+        setCollapsedFolders(allFolders);
+      } else {
+        setCollapsedFolders(new Set());
       }
-    }, [fileList, collapsed]);
+    }, [collapsed]);
 
     const toggleCollapseState = (fullPath: string) => {
-      setCollapsedFolders(prev => {
-        const next = new Set(prev);
-        if (next.has(fullPath)) {
-          next.delete(fullPath);
+      if (isFolderEmpty(fullPath, files)) {
+        return;
+      }
+
+      setCollapsedFolders(prevSet => {
+        const newSet = new Set(prevSet);
+        if (newSet.has(fullPath)) {
+          newSet.delete(fullPath);
         } else {
-          next.add(fullPath);
+          newSet.add(fullPath);
         }
-        return next;
+        return newSet;
       });
     };
 
-    const isNodeVisible = useCallback((node: Node): boolean => {
-      let currentPath = node.fullPath;
-      while (currentPath.includes('/')) {
-        currentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
-        if (currentPath && collapsedFolders.has(currentPath)) {
-          return false;
+    const filteredFileList = useMemo(() => {
+      const list = [];
+      const processedPaths = new Set<string>();
+
+      for (const fileOrFolder of fileList) {
+        const pathSegments = fileOrFolder.fullPath.split('/');
+        let isParentCollapsed = false;
+        
+        for (let i = 0; i < pathSegments.length - 1; i++) {
+          const parentPath = pathSegments.slice(0, i + 1).join('/');
+          if (parentPath && collapsedFolders.has(parentPath)) {
+            isParentCollapsed = true;
+            break;
+          }
+        }
+
+        if (isParentCollapsed) {
+          continue;
+        }
+
+        if (!processedPaths.has(fileOrFolder.fullPath)) {
+          list.push(fileOrFolder);
+          processedPaths.add(fileOrFolder.fullPath);
         }
       }
-      return true;
-    }, [collapsedFolders]);
 
-    const filteredFileList = useMemo(() => {
-      return fileList.filter(isNodeVisible);
-    }, [fileList, isNodeVisible]);
+      return list;
+    }, [fileList, collapsedFolders]);
 
     console.log('FileTree received files:', files);
 
@@ -307,27 +342,22 @@ function buildFileList(
 
   let defaultDepth = 0;
 
-  // 创建根文件夹
   if (rootFolder === '/' && !hideRoot) {
     defaultDepth = 1;
     fileList.push({ kind: 'folder', name: '/', depth: 0, id: 0, fullPath: '/' });
   }
 
-  // 处理所有条目
   for (const [filePath, dirent] of Object.entries(files)) {
     if (!dirent) continue;
 
-    // 规范化文件路径
     const normalizedPath = filePath.replace(/^\/+/, '');
     const segments = normalizedPath.split('/').filter(Boolean);
     const name = segments[segments.length - 1] || normalizedPath;
     
-    // 检查是否应该隐藏
     if (isHiddenFile(normalizedPath, name, hiddenFiles)) {
       continue;
     }
 
-    // 确保父文件夹存在
     let currentPath = '';
     for (let i = 0; i < segments.length - 1; i++) {
       currentPath += '/' + segments[i];
@@ -343,10 +373,7 @@ function buildFileList(
       }
     }
 
-    // 添加文件或文件夹
-    const isDirectory = typeof dirent.isDirectory === 'function' 
-      ? dirent.isDirectory()
-      : dirent.type === 'directory';
+    const isDirectory = dirent.type === 'folder';
 
     fileList.push({
       kind: isDirectory ? 'folder' : 'file',
@@ -357,7 +384,6 @@ function buildFileList(
     });
   }
 
-  // 在返回前添加验证和日志
   if (fileList.length === 0) {
     console.warn('Generated file list is empty');
   } else {
@@ -370,7 +396,6 @@ function buildFileList(
 }
 
 function isHiddenFile(filePath: string, fileName: string, hiddenFiles: Array<string | RegExp>) {
-  // 忽略以点开头的文件和文件夹
   if (fileName.startsWith('.') || fileName.startsWith('_')) {
     return true;
   }
@@ -383,39 +408,21 @@ function isHiddenFile(filePath: string, fileName: string, hiddenFiles: Array<str
   });
 }
 
-/**
- * Sorts the given list of nodes into a tree structure (still a flat list).
- *
- * This function organizes the nodes into a hierarchical structure based on their paths,
- * with folders appearing before files and all items sorted alphabetically within their level.
- *
- * @note This function mutates the given `nodeList` array for performance reasons.
- *
- * @param rootFolder - The path of the root folder to start the sorting from.
- * @param nodeList - The list of nodes to be sorted.
- *
- * @returns A new array of nodes sorted in depth-first order.
- */
 function sortFileList(rootFolder: string, nodeList: Node[], hideRoot: boolean): Node[] {
   logger.trace('sortFileList');
 
-  // 预处理：移除不需要的路径前缀
   const normalizedRootFolder = rootFolder.replace(/^\/+|\/+$/g, '');
   
-  // 按类型和名称预排序
   nodeList.sort((a, b) => {
-    // 首先按类型排序（文件夹在前）
     if (a.kind !== b.kind) {
       return a.kind === 'folder' ? -1 : 1;
     }
-    // 然后按名称排序（不区分大小写）
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
 
   const nodeMap = new Map<string, Node>();
   const childrenMap = new Map<string, Node[]>();
 
-  // 构建节点映射和父子关系
   for (const node of nodeList) {
     nodeMap.set(node.fullPath, node);
 
@@ -430,7 +437,6 @@ function sortFileList(rootFolder: string, nodeList: Node[], hideRoot: boolean): 
 
   const sortedList: Node[] = [];
 
-  // 深度优先遍历
   const traverse = (path: string) => {
     const node = nodeMap.get(path);
     if (node) {
@@ -446,7 +452,6 @@ function sortFileList(rootFolder: string, nodeList: Node[], hideRoot: boolean): 
     }
   };
 
-  // 开始遍历
   if (hideRoot) {
     const rootChildren = Array.from(nodeMap.values())
       .filter(node => !node.fullPath.includes('/'))
@@ -468,4 +473,11 @@ function compareNodes(a: Node, b: Node): number {
   }
 
   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function isFolderEmpty(folderPath: string, files: FileMap): boolean {
+  return !Object.entries(files).some(([path, dirent]) => {
+    if (path === folderPath) return false;
+    return path.startsWith(folderPath + '/') && dirent !== undefined;
+  });
 }
