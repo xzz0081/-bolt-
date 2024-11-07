@@ -317,11 +317,13 @@ function buildFileList(
   for (const [filePath, dirent] of Object.entries(files)) {
     if (!dirent) continue;
 
-    const segments = filePath.split('/').filter(Boolean);
-    const name = segments[segments.length - 1] || filePath;
+    // 规范化文件路径
+    const normalizedPath = filePath.replace(/^\/+/, '');
+    const segments = normalizedPath.split('/').filter(Boolean);
+    const name = segments[segments.length - 1] || normalizedPath;
     
     // 检查是否应该隐藏
-    if (isHiddenFile(filePath, name, hiddenFiles)) {
+    if (isHiddenFile(normalizedPath, name, hiddenFiles)) {
       continue;
     }
 
@@ -342,25 +344,41 @@ function buildFileList(
     }
 
     // 添加文件或文件夹
+    const isDirectory = typeof dirent.isDirectory === 'function' 
+      ? dirent.isDirectory()
+      : dirent.type === 'directory';
+
     fileList.push({
-      kind: dirent.type === 'file' ? 'file' : 'folder',
+      kind: isDirectory ? 'folder' : 'file',
       id: fileList.length,
       name,
-      fullPath: filePath,
+      fullPath: normalizedPath,
       depth: segments.length - 1 + defaultDepth
     });
   }
 
-  console.log('Final file list:', fileList);
-  return sortFileList(rootFolder, fileList, hideRoot);
+  // 在返回前添加验证和日志
+  if (fileList.length === 0) {
+    console.warn('Generated file list is empty');
+  } else {
+    console.log('Generated file list count:', fileList.length);
+  }
+
+  const sortedList = sortFileList(rootFolder, fileList, hideRoot);
+  console.log('Final sorted file list:', sortedList);
+  return sortedList;
 }
 
 function isHiddenFile(filePath: string, fileName: string, hiddenFiles: Array<string | RegExp>) {
+  // 忽略以点开头的文件和文件夹
+  if (fileName.startsWith('.') || fileName.startsWith('_')) {
+    return true;
+  }
+
   return hiddenFiles.some((pathOrRegex) => {
     if (typeof pathOrRegex === 'string') {
-      return fileName === pathOrRegex;
+      return filePath === pathOrRegex || fileName === pathOrRegex;
     }
-
     return pathOrRegex.test(filePath);
   });
 }
@@ -381,57 +399,64 @@ function isHiddenFile(filePath: string, fileName: string, hiddenFiles: Array<str
 function sortFileList(rootFolder: string, nodeList: Node[], hideRoot: boolean): Node[] {
   logger.trace('sortFileList');
 
+  // 预处理：移除不需要的路径前缀
+  const normalizedRootFolder = rootFolder.replace(/^\/+|\/+$/g, '');
+  
+  // 按类型和名称预排序
+  nodeList.sort((a, b) => {
+    // 首先按类型排序（文件夹在前）
+    if (a.kind !== b.kind) {
+      return a.kind === 'folder' ? -1 : 1;
+    }
+    // 然后按名称排序（不区分大小写）
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+
   const nodeMap = new Map<string, Node>();
   const childrenMap = new Map<string, Node[]>();
 
-  // pre-sort nodes by name and type
-  nodeList.sort((a, b) => compareNodes(a, b));
-
+  // 构建节点映射和父子关系
   for (const node of nodeList) {
     nodeMap.set(node.fullPath, node);
 
-    const parentPath = node.fullPath.slice(0, node.fullPath.lastIndexOf('/'));
-
-    if (parentPath !== rootFolder.slice(0, rootFolder.lastIndexOf('/'))) {
+    const parentPath = node.fullPath.substring(0, node.fullPath.lastIndexOf('/'));
+    if (parentPath && parentPath !== normalizedRootFolder) {
       if (!childrenMap.has(parentPath)) {
         childrenMap.set(parentPath, []);
       }
-
       childrenMap.get(parentPath)?.push(node);
     }
   }
 
   const sortedList: Node[] = [];
 
-  const depthFirstTraversal = (path: string): void => {
+  // 深度优先遍历
+  const traverse = (path: string) => {
     const node = nodeMap.get(path);
-
     if (node) {
       sortedList.push(node);
     }
 
     const children = childrenMap.get(path);
-
     if (children) {
+      children.sort(compareNodes);
       for (const child of children) {
-        if (child.kind === 'folder') {
-          depthFirstTraversal(child.fullPath);
-        } else {
-          sortedList.push(child);
-        }
+        traverse(child.fullPath);
       }
     }
   };
 
+  // 开始遍历
   if (hideRoot) {
-    // if root is hidden, start traversal from its immediate children
-    const rootChildren = childrenMap.get(rootFolder) || [];
-
+    const rootChildren = Array.from(nodeMap.values())
+      .filter(node => !node.fullPath.includes('/'))
+      .sort(compareNodes);
+    
     for (const child of rootChildren) {
-      depthFirstTraversal(child.fullPath);
+      traverse(child.fullPath);
     }
   } else {
-    depthFirstTraversal(rootFolder);
+    traverse(normalizedRootFolder);
   }
 
   return sortedList;
