@@ -52,43 +52,29 @@ export const FileTree = memo(
       return buildFileList(files, rootFolder, hideRoot, computedHiddenFiles);
     }, [files, rootFolder, hideRoot, computedHiddenFiles]);
 
-    const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
-      const allFolders = new Set<string>();
-      for (const [filePath, dirent] of Object.entries(files)) {
-        if (dirent?.type === 'folder') {
-          allFolders.add(filePath);
-        }
-        let parentPath = filePath;
-        while (parentPath.includes('/')) {
-          parentPath = parentPath.substring(0, parentPath.lastIndexOf('/'));
-          if (parentPath) {
-            allFolders.add(parentPath);
-          }
-        }
-      }
-      return allFolders;
-    });
+    const [collapsedFolders, setCollapsedFolders] = useState(new Set<string>());
 
     useEffect(() => {
-      if (collapsed) {
-        const allFolders = new Set<string>();
-        for (const [filePath, dirent] of Object.entries(files)) {
-          if (dirent?.type === 'folder') {
-            allFolders.add(filePath);
-          }
-          let parentPath = filePath;
-          while (parentPath.includes('/')) {
-            parentPath = parentPath.substring(0, parentPath.lastIndexOf('/'));
-            if (parentPath) {
-              allFolders.add(parentPath);
-            }
-          }
+      if (collapsedFolders.size > 0) return;
+      
+      const allFolders = new Set<string>();
+      
+      for (const item of fileList) {
+        if (item.kind === 'folder') {
+          allFolders.add(item.fullPath);
         }
-        setCollapsedFolders(allFolders);
-      } else {
-        setCollapsedFolders(new Set());
+        const parts = item.fullPath.split('/');
+        let path = '';
+        for (let i = 0; i < parts.length - 1; i++) {
+          path = path ? `${path}/${parts[i]}` : parts[i];
+          allFolders.add(path);
+        }
       }
-    }, [collapsed]);
+      
+      if (allFolders.size > 0) {
+        setCollapsedFolders(allFolders);
+      }
+    }, [fileList, collapsedFolders]);
 
     const toggleCollapseState = (fullPath: string) => {
       if (isFolderEmpty(fullPath, files)) {
